@@ -3,10 +3,11 @@
 """
 Values generators for common Django Fields
 """
+from django.contrib.contenttypes.models import ContentType
 import re, os, random
 from decimal import Decimal
 from datetime import date, datetime, time
-from string import ascii_letters, digits
+from string import ascii_letters, digits, hexdigits
 from random import choice
 
 from django.core.exceptions import ValidationError
@@ -15,6 +16,13 @@ from django.db import models, IntegrityError
 from django.db.models import Q
 from django.db.models.fields.files import FieldFile
 from django.contrib.webdesign.lorem_ipsum import paragraphs
+
+from django.core.validators import validate_ipv4_address
+try:
+    from django.core.validators import validate_ipv6_address, validate_ipv46_address
+except ImportError:
+    validate_ipv6_address = None
+    validate_ipv46_address = None
 
 from django_any import xunit
 from django_any.functions import valid_choices, split_model_kwargs, \
@@ -210,6 +218,7 @@ def any_float_field(field, **kwargs):
 
 
 @any_field.register(models.FileField)
+@any_field.register(models.ImageField)
 def any_file_field(field, **kwargs):
     """
     Lookup for nearest existing file
@@ -228,7 +237,12 @@ def any_file_field(field, **kwargs):
             if result:
                 return result
             
-    result = get_some_file(field.upload_to)
+    if callable(field.upload_to):
+        generated_filepath = field.upload_to(None, xunit.any_string(ascii_letters, 10, 20))
+        upload_to = os.path.dirname(generated_filepath)
+    else:
+        upload_to = field.upload_to
+    result = get_some_file(upload_to)
 
     if result is None and not field.null:
         raise TypeError("Can't found file in %s for non nullable FileField" % field.upload_to)
@@ -279,6 +293,45 @@ def any_ipaddress_field(field, **kwargs):
     """
     nums = [str(xunit.any_int(min_value=0, max_value=255)) for _ in xrange(0, 4)]
     return ".".join(nums)
+
+if validate_ipv6_address:
+    @any_field.register(models.GenericIPAddressField)
+    def any_genericipaddress_field(field, **kwargs):
+        """
+        Return random value for GenericIPAddressField
+        >>> ipv4_address = any_field(models.GenericIPAddressField(protocol='ipv4'))
+        >>> type(ipv4_address)
+        <type 'str'>
+        >>> from django.core.validators import ipv4_re
+        >>> re.match(ipv4_re, ipv4_address) is not None
+        True
+        >>> ipv6_address = any_field(models.GenericIPAddressField(protocol='ipv6'))
+        >>> type(ipv6_address)
+        <type 'str'>
+        >>> from django.utils.ipv6 import is_valid_ipv6_address
+        >>> is_valid_ipv6_address(ipv6_address) is True
+        True
+        >>> ipv46_address = any_field(models.GenericIPAddressField())
+        >>> type(ipv46_address)
+        <type 'str'>
+        >>> from django.core.validators import validate_ipv46_address
+        >>> validate_ipv46_address(ipv46_address) is True
+        False
+        """
+        if field.default_validators == [validate_ipv46_address]:
+            protocol = random.choice(('ipv4', 'ipv6'))
+        elif field.default_validators == [validate_ipv4_address]:
+            protocol = 'ipv4'
+        elif field.default_validators == [validate_ipv6_address]:
+            protocol = 'ipv6'
+        else:
+            raise Exception('Unexpected validators')
+
+        if protocol == 'ipv4':
+            return any_ipaddress_field(field)
+        if protocol == 'ipv6':
+            nums = [str(xunit.any_string(hexdigits, min_length=4, max_length=4)) for _ in xrange(0, 8)]
+            return ":".join(nums)
 
 
 @any_field.register(models.NullBooleanField)
@@ -359,7 +412,7 @@ def any_text_field(field, **kwargs):
     >>> result[0] == COMMON_P
     True
     """
-    return paragraphs(10)
+    return str(paragraphs(10))
 
 
 @any_field.register(models.URLField)
@@ -422,6 +475,12 @@ def any_onetoone_field(field, **kwargs):
 def _fill_model_fields(model, **kwargs):
     model_fields, fields_args = split_model_kwargs(kwargs)
 
+    # fill virtual fields
+    for field in model._meta.virtual_fields:
+        if field.name in model_fields:
+            object = kwargs[field.name]
+            model_fields[field.ct_field] = kwargs[field.ct_field]= ContentType.objects.get_for_model(object)
+            model_fields[field.fk_field] = kwargs[field.fk_field]= object.id
     # fill local fields
     for field in model._meta.fields:
         if field.name in model_fields:
@@ -442,6 +501,10 @@ def _fill_model_fields(model, **kwargs):
         elif isinstance(field, models.fields.AutoField):
             """
             skip primary key field
+            """
+        elif isinstance(field, models.fields.related.ForeignKey) and field.model == field.rel.to:
+            """
+            skip self relations
             """
         else:
             setattr(model, field.name, any_field(field, **fields_args[field.name]))

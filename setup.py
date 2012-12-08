@@ -1,15 +1,15 @@
-from setuptools import setup, find_packages
+from setuptools import setup
 
 setup(
-    name='django-any',
+    name='django-whatever',
     version='0.2.0',
-    description='Unobtrusive test models  creation for django.',
-    author='Mikhail Podgurskiy',
-    author_email='kmmbvnr@gmail.com',
-    url='http://github.com/kmmbvnr/django-any',
-    keywords = "django",
+    description='Unobtrusive test models creation for django.',
+    author='Ilya Baryshev',
+    author_email='baryshev@gmail.com',
+    url='http://github.com/coagulant/django-whatever',
     packages=['django_any', 'django_any.contrib', 'django_any.tests'],
     include_package_data=True,
+    test_suite = "tests.manage",
     zip_safe=False,
     license='MIT License',
     platforms = ['any'],

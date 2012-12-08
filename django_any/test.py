@@ -1,6 +1,11 @@
 # -*- coding: utf-8 -*-
 import time, random
-from unittest import _strclass
+
+try:
+    from unittest import _strclass
+except ImportError:
+    _strclass = str
+
 from django import forms
 from django_any import any_form
 from django.test.client import Client as DjangoClient
@@ -96,7 +101,7 @@ def with_seed(seed):
 
 def set_seed(func, seed=None):
     """
-    Set randon seed before executing function. If seed is 
+    Set randon seed before executing function. If seed is
     not provided current timestamp used
     """
     def _wrapper(self, seed=seed, *args, **kwargs):
@@ -113,7 +118,7 @@ class WithTestDataSeed(type):
     def __new__(cls, cls_name, bases, attrs):
         attrs['__django_any_seed'] = 0
 
-        def shortDescription(self):            
+        def shortDescription(self):
             return "%s (%s) With seed %s" % (self._testMethodName,  _strclass(self.__class__), getattr(self, '__django_any_seed'))
 
         for name, func in attrs.items():
@@ -125,7 +130,7 @@ class WithTestDataSeed(type):
 
                 for seed in getattr(func, '__django_any_with_seed', []):
                     attrs['%s_%d' % (name, seed)] = set_seed(func, seed)
-                
+
         testcase = super(WithTestDataSeed, cls).__new__(cls, cls_name, bases, attrs)
         testcase.shortDescription = shortDescription
         return testcase
